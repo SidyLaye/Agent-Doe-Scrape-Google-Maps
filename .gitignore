@@ -1,0 +1,49 @@
+.env
+venv
+whatsapp_qr.png
+*.pyc
+.DS_Store
+credentials.json
+token.json
+# Environment Variables
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# System
+.DS_Store
+.checkpoints/
+
+# Project Data (Scraped content)
+data/*
+!data/.gitkeep
+.tmp/
+
+# Debug output
+debug_*.html
+*.log
+
+# Editor
+.vscode/
+.idea/
+
+# Project specific
+whatsapp_qr.png
+
+DOE_GUIDE.md
+.mcp.json
+
+# Credentials in execution/ (copies from root)
+execution/.env
+execution/credentials.json
+execution/token.json
