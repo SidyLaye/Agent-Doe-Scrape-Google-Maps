@@ -43,6 +43,19 @@ whatsapp_qr.png
 DOE_GUIDE.md
 .mcp.json
 
+# Data files (scraped/exported)
+*.xlsx
+*.csv
+
+# Temp scripts
+temp_*.py
+verify_*.py
+
+# IDE / AI tool directories
+.claude/
+.history/
+.gemini/
+
 # Credentials in execution/ (copies from root)
 execution/.env
 execution/credentials.json

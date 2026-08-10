@@ -5,10 +5,11 @@ Google Maps Lead Generation Pipeline
 End-to-end pipeline that:
 1. Scrapes Google Maps for businesses matching search criteria
 2. Enriches French businesses with dirigeant (director) data via Annuaire des Entreprises API
-3. Saves results to a persistent Google Sheet
+3. Enriches dirigeants with LinkedIn profile URLs via Apify Google Search
+4. Saves results to a persistent Google Sheet
 
 Usage:
-    uv run execution/gmaps_lead_pipeline.py --search "agences immobilières" --location "Lyon" --limit 10
+    python gmaps_lead_pipeline.py --search "agences immobilières" --location "Lyon" --limit 10
 """
 
 import os
@@ -27,6 +28,7 @@ from google.auth.transport.requests import Request
 from scrape_google_maps import scrape_google_maps
 from enrich_dirigeants import enrich_lead
 from enrich_linkedin import _clean_first_name, _clean_last_name
+from enrich_linkedin_apify import build_linkedin_query, search_linkedin_batch
 
 load_dotenv()
 
@@ -65,6 +67,8 @@ LEAD_COLUMNS = [
     "dirigeant_prenom",
     "dirigeant_qualite",
     "dirigeant_type",
+    # Enrichment: LinkedIn profile
+    "dirigeant_linkedin",
 ]
 
 
@@ -184,7 +188,7 @@ def get_or_create_sheet(sheet_url: str = None, sheet_name: str = None) -> tuple:
         spreadsheet = client.create(name)
         worksheet = spreadsheet.sheet1
         worksheet.update(values=[LEAD_COLUMNS], range_name='A1')
-        worksheet.format('A1:W1', {
+        worksheet.format('A1:X1', {
             "textFormat": {"bold": True},
             "backgroundColor": {"red": 0.9, "green": 0.9, "blue": 0.9}
         })
@@ -262,7 +266,7 @@ def run_pipeline(
             continue
         website = lead.get("website", "") or None
         category = lead.get("category", "") or None
-        print(f"  [{i+1}/{len(leads)}] {name}")
+        print(f"  [{i+1}/{len(leads)}] {name}", flush=True)
         enrichment = enrich_lead(name, zip_code=zip_code, website=website,
                                  gmaps_category=category)
         lead.update(enrichment)
@@ -278,8 +282,46 @@ def run_pipeline(
     results["leads_enriched"] = enriched_count
     print(f"Enriched {enriched_count}/{len(leads)} leads with dirigeant data")
 
-    # Step 3: Save to Google Sheet
-    print(f"\nSTEP 3: Saving to Google Sheet")
+    # Step 3: Enrich with LinkedIn URLs (LinkedIn native + Google fallback)
+    print(f"\nSTEP 3: Searching LinkedIn profiles (native search + Google fallback)")
+    linkedin_count = 0
+    # Build deduplicated queries for all leads with dirigeant data
+    queries_map = {}  # query -> [lead indices]
+    lead_query_map = {}  # lead index -> query
+    broad_info = {}  # query -> {prenom, nom, city, sector, company}
+    for i, lead in enumerate(leads):
+        prenom = lead.get("dirigeant_prenom", "")
+        nom = lead.get("dirigeant_nom", "")
+        dtype = lead.get("dirigeant_type", "")
+        if not prenom or not nom or "morale" in dtype.lower():
+            continue
+        company = lead.get("nom_raison_sociale") or lead.get("business_name", "")
+        query = build_linkedin_query(prenom, nom, company)
+        if not query:
+            continue
+        lead_query_map[i] = query
+        if query not in queries_map:
+            queries_map[query] = []
+        queries_map[query].append(i)
+        broad_info[query] = {
+            "prenom": prenom, "nom": nom,
+            "city": lead.get("city", ""),
+            "sector": lead.get("category", ""),
+            "company": company,
+        }
+
+    if queries_map:
+        linkedin_results = search_linkedin_batch(queries_map, broad_info=broad_info)
+        for i, query in lead_query_map.items():
+            url = linkedin_results.get(query, "")
+            if url:
+                leads[i]["dirigeant_linkedin"] = url
+                linkedin_count += 1
+    results["leads_linkedin"] = linkedin_count
+    print(f"Found {linkedin_count}/{len(lead_query_map)} LinkedIn profiles")
+
+    # Step 4: Save to Google Sheet
+    print(f"\nSTEP 4: Saving to Google Sheet")
     try:
         spreadsheet, worksheet, is_new = get_or_create_sheet(sheet_url, sheet_name)
         results["sheet_url"] = spreadsheet.url

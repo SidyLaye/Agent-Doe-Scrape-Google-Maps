@@ -89,19 +89,22 @@ python gmaps_lead_pipeline.py --search "garage automobile" --location "Île-de-F
 | `--sheet-url` | No | Existing Google Sheet URL to append to | `"https://docs.google.com/spreadsheets/d/..."` |
 | `--sheet-name` | No | Custom sheet name (default: "GMaps Lead Database") | `"Mes Leads"` |
 
-### What the pipeline does (3 steps)
+### What the pipeline does (4 steps)
 1. **Scrape Google Maps** via Apify (`scrape_google_maps.py`) — geocodes location automatically
 2. **Enrich with dirigeant data** via Annuaire des Entreprises API (`enrich_dirigeants.py`) — SIREN, nom, prenom, qualite. Covers 38 industry sectors with NAF validation
-3. **Save to Google Sheet** — creates a new sheet or appends to existing one, avoids duplicates
+3. **Enrich with LinkedIn URLs** via Apify Google Search (`enrich_linkedin_apify.py`) — searches `site:linkedin.com/in/ "Prénom Nom" "Entreprise"`, deduplicated batch
+4. **Save to Google Sheet** — creates a new sheet or appends to existing one, avoids duplicates
 
 ### Pipeline output columns
-`lead_id`, `scraped_at`, `search_query`, `business_name`, `category`, `address`, `city`, `state`, `zip_code`, `country`, `phone`, `website`, `google_maps_url`, `place_id`, `rating`, `review_count`, `price_level`, `siren`, `nom_raison_sociale`, `dirigeant_nom`, `dirigeant_prenom`, `dirigeant_qualite`, `dirigeant_type`
+`lead_id`, `scraped_at`, `search_query`, `business_name`, `category`, `address`, `city`, `state`, `zip_code`, `country`, `phone`, `website`, `google_maps_url`, `place_id`, `rating`, `review_count`, `price_level`, `siren`, `nom_raison_sociale`, `dirigeant_nom`, `dirigeant_prenom`, `dirigeant_qualite`, `dirigeant_type`, `dirigeant_linkedin`
 
 ### Other available scripts
 
 | Script | Purpose | Usage |
 |---|---|---|
 | `enrich_dirigeants.py` | Lookup a single business | `python enrich_dirigeants.py --name "Laforet Lyon" --zip 69002` |
+| `enrich_linkedin_apify.py` | Add LinkedIn URLs to existing sheet (via Apify Google Search) | `python enrich_linkedin_apify.py --sheet-url "https://docs.google.com/..."` |
+| `enrich_linkedin_apify.py` | Lookup a single person's LinkedIn | `python enrich_linkedin_apify.py --first "Jean" --last "Dupont" --company "Laforet"` |
 | `clean_sheet_names.py` | Fix names in existing sheet (ALL CAPS -> Title Case) | `python clean_sheet_names.py` |
 
 ---
