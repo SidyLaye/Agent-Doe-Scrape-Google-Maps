@@ -13,20 +13,21 @@ Use this directive when you need to:
 - `search_query`: The industry or business type to search for (e.g., "Digital Marketing Agency").
 - `location` (optional): The geographical area to focus the search (ex: "Paris, France").
 - `limit`: The maximum number of results to fetch (default: 10).
-- `APIFY_API_TOKEN`: Required in `.env` to authenticate with Apify.
+- `APIFY_API_TOKEN`: Required in `backend/.env` to authenticate with Apify.
 
 ## 4. Execution
 
 ### Step 1: Pre-execution Check
 Verify that:
-- `.env` contains a valid `APIFY_API_TOKEN`.
-- `credentials.json` is present at the project root.
+- `backend/.env` contains a valid `APIFY_API_TOKEN`.
+- `backend/secrets/credentials.json` is present.
 
 ### Step 2: Run the GMaps to GSheet Pipeline
-Run the following command from the project root using `uv`:
+Run the following command from the `backend/execution/` directory using Python:
 
 ```bash
-uv run execution/gmaps_lead_pipeline.py \
+cd backend/execution
+python gmaps_lead_pipeline.py \
     --search "{search_query}" \
     --location "{location}" \
     --limit {limit}
@@ -60,7 +61,7 @@ After scraping, the pipeline automatically enriches French businesses with direc
 ### Standalone usage
 You can also enrich a single business name without running the full pipeline:
 ```bash
-uv run execution/enrich_dirigeants.py --name "Laforet Lyon" --zip 69002
+uv run backend/execution/enrich_dirigeants.py --name "Laforet Lyon" --zip 69002
 ```
 
 ### Enrichment strategy (5-tier)
@@ -111,5 +112,44 @@ To add region-level overrides (larger radius), edit `_SPECIAL_LOCATIONS` in `scr
 - **Duplicates**: The script automatically avoids adding the same business twice to the same sheet (based on name and address).
 - **Location Context**: Use the `--location` parameter if you want to force results in a specific area.
 
-## 8. Working Directory Note
-When running via `python execution/gmaps_lead_pipeline.py` (from the `execution/` directory), `credentials.json` and `token.json` must be present in that directory. When running via `uv run execution/gmaps_lead_pipeline.py` (from project root), they should be at the project root.
+## 8. Outreach messages and appointment booking
+
+The pipeline prepares messages but does not send them automatically. Add a Calendly
+or Cal.com URL and select a preferred channel:
+
+```bash
+cd backend/execution
+python gmaps_lead_pipeline.py \
+    --search "agences immobilières" \
+    --location "Lyon" \
+    --limit 10 \
+    --channel whatsapp \
+    --booking-url "https://cal.com/votre-lien"
+```
+
+Available channels are `auto`, `email`, `sms`, and `whatsapp`. In `auto` mode,
+email is preferred when available, then WhatsApp when a phone number is available.
+
+To customize the three messages without changing Python, copy
+`backend/execution/outreach_templates.example.json`, edit it, and pass its path with
+`--template-file`. Supported placeholders include `{business_name}`,
+`{contact_name}`, `{booking_url}`, and any Google Maps lead column.
+
+Added columns: `email`, `preferred_channel`, `booking_url`, `email_message`,
+`sms_message`, `whatsapp_message`, `whatsapp_url`, and `outreach_status`.
+Existing sheets are upgraded automatically without moving their current columns.
+
+### Local CSV export (no Google Sheets write)
+
+Pass `--csv-output` to write all leads to a local UTF-8 CSV and bypass Google
+Sheets authentication entirely:
+
+```bash
+cd backend/execution
+python gmaps_lead_pipeline.py --search "entreprises" --location "Bénin" --limit 50 \
+    --csv-output "../.tmp/contacts_benin.csv"
+```
+
+## 9. Working Directory Note
+All launch modes load configuration from `backend/.env` and Google OAuth files from `backend/secrets/`. Do not copy these secrets into the execution directory.
+

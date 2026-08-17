@@ -6,8 +6,8 @@ Uses the free French government API (Annuaire des Entreprises) to find
 SIREN numbers and director names from business names.
 
 Usage:
-    uv run execution/enrich_dirigeants.py --name "Laforet Lyon"
-    uv run execution/enrich_dirigeants.py --file .tmp/leads.json
+    python backend/execution/enrich_dirigeants.py --name "Laforet Lyon"
+    python backend/execution/enrich_dirigeants.py --file .tmp/leads.json
 """
 
 import json

@@ -24,7 +24,7 @@ Donne ce dossier a n'importe quelle IA (Claude, Gemini, GPT, Cursor...) et elle 
 
 ```bash
 # Python 3.11+ requis
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 
 # Pour le scraping SIREN sur les sites web (optionnel mais recommande)
 python -m playwright install chromium
@@ -34,11 +34,10 @@ python -m playwright install chromium
 
 1. Creer un compte sur [apify.com](https://apify.com/)
 2. Recuperer votre API Token dans Settings > Integrations
-3. Copier `.env.example` en `.env` et remplir :
+3. Copier `backend/.env.example` en `backend/.env` et remplir :
 
 ```env
 APIFY_API_TOKEN=votre_cle_ici
-GOOGLE_APPLICATION_CREDENTIALS=credentials.json
 ```
 
 ### 3. Google Sheets (OAuth)
@@ -51,18 +50,16 @@ Suivez le tuto en images dans `tuto credentials/` :
 4. Configurer l'ecran de consentement OAuth (External)
 5. Creer des identifiants OAuth (type **Desktop App**)
 6. Telecharger le JSON, le renommer `credentials.json`
-7. Le placer a la racine du projet **ET** dans `execution/`
+7. Le placer dans `backend/secrets/credentials.json`
 8. Ajouter votre email comme utilisateur de test
 
-> Au premier lancement, un navigateur s'ouvre pour autoriser l'acces. Cliquez "Autoriser". Un fichier `token.json` est cree automatiquement.
+> Au premier lancement, un navigateur s'ouvre pour autoriser l'acces. Cliquez "Autoriser". Le fichier `backend/secrets/token.json` est cree automatiquement.
 
-### 4. Copier les credentials dans execution/
+### 4. Securite des secrets
 
-```bash
-cp .env execution/.env
-cp credentials.json execution/credentials.json
-# token.json sera cree automatiquement au premier lancement
-```
+Il n'existe qu'une configuration active : `backend/.env`. Les fichiers OAuth restent
+dans `backend/secrets/`. Ces chemins sont ignores par Git et ne doivent jamais etre
+copies dans `frontend/`, dans `backend/execution/` ou dans une image Docker.
 
 ---
 
@@ -83,7 +80,7 @@ L'IA lit les instructions dans `CLAUDE.md` / `AGENTS.md` / `GEMINI.md`, comprend
 ### Via la ligne de commande (mode manuel)
 
 ```bash
-cd execution
+cd backend/execution
 
 # 50 garages en Ile-de-France
 python gmaps_lead_pipeline.py --search "garage automobile" --location "Ile-de-France" --limit 50
@@ -102,32 +99,20 @@ python clean_sheet_names.py
 
 ## Structure du projet
 
-```
+```text
 .
-├── CLAUDE.md / AGENTS.md / GEMINI.md   # Instructions IA (identiques)
-├── README.md                            # Ce fichier
-├── requirements.txt                     # Dependances Python
-├── .env.example                         # Template de config
-├── .env                                 # Config reelle (pas commite)
-├── credentials.json                     # OAuth Google (pas commite)
-├── token.json                           # Token auto-genere (pas commite)
-│
-├── directives/                          # SOPs Markdown
-│   └── scrape_google_maps.md            # Directive principale
-│
-├── execution/                           # Scripts Python
-│   ├── gmaps_lead_pipeline.py           # Pipeline principal (orchestrateur)
-│   ├── scrape_google_maps.py            # Scraping Google Maps via Apify
-│   ├── enrich_dirigeants.py             # Enrichissement dirigeant (API gouv)
-│   ├── enrich_linkedin.py              # Utilitaires nettoyage noms
-│   └── clean_sheet_names.py             # Nettoyage noms dans sheet existante
-│
-├── tuto credentials/                    # Captures d'ecran setup Google Cloud
-│   ├── 1. Create Project.png
-│   ├── ...
-│   └── 15. Add test user.png
-│
-└── .tmp/                                # Fichiers temporaires (auto-genere)
+|-- frontend/                  # Interface React/Vite
+|-- backend/
+|   |-- app/                   # API FastAPI
+|   |-- execution/             # Scraping et enrichissement
+|   |-- tests/                 # Tests backend
+|   |-- secrets/               # OAuth Google local, ignore par Git
+|   |-- .env                   # Secrets backend locaux, ignore par Git
+|   |-- .env.example           # Variables documentees sans secret
+|   `-- requirements.txt       # Dependances Python
+|-- directives/                # Procedures metier
+|-- docker-compose.yml         # PostgreSQL local/deploiement
+`-- start.ps1                  # Lancement local
 ```
 
 ---
@@ -165,3 +150,4 @@ python clean_sheet_names.py
 - **NAF Validation** : Chaque resultat est croise avec le code NAF/APE pour eviter les faux positifs (un garage ne matchera pas un salon de coiffure)
 - **Nettoyage noms** : Les noms de dirigeants sont automatiquement mis en forme (DUPONT JEAN-PIERRE ANDRE -> Jean-Pierre Dupont)
 - **Playwright** : Utilise comme fallback pour scraper le SIREN sur les sites en JavaScript. Optionnel mais ameliore le taux d'enrichissement de ~5%
+

@@ -1,0 +1,5 @@
+{
+  "email": "Objet : Une idée pour {business_name}\n\nBonjour {contact_name},\n\nJe souhaite vous présenter quelques pistes d'amélioration pour {business_name}. Réservez un créneau ici : {booking_url}",
+  "sms": "Bonjour {contact_name}, j'ai une proposition pour {business_name}. Échange rapide : {booking_url}",
+  "whatsapp": "Bonjour {contact_name} 👋 J'ai préparé une proposition pour {business_name}. Voici mon calendrier : {booking_url}"
+}

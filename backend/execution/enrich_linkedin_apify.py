@@ -22,10 +22,12 @@ import json
 import re
 import argparse
 import time
+from pathlib import Path
 from dotenv import load_dotenv
 from apify_client import ApifyClient
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+SECRETS_DIR = Path(__file__).resolve().parents[1] / "secrets"
 
 LINKEDIN_SEARCH_ACTOR = "harvestapi/linkedin-profile-search-by-name"
 GOOGLE_SEARCH_ACTOR = "apify/google-search-scraper"
@@ -875,9 +877,10 @@ def enrich_sheet_linkedin(sheet_url: str):
     from google.auth.transport.requests import Request
 
     creds = None
-    if os.path.exists('token.json'):
+    token_file = Path(os.getenv("GOOGLE_TOKEN_FILE", SECRETS_DIR / "token.json"))
+    if token_file.exists():
         try:
-            with open('token.json', 'r') as token:
+            with token_file.open('r', encoding='utf-8') as token:
                 token_data = json.load(token)
                 scopes = [
                     "https://www.googleapis.com/auth/spreadsheets",
@@ -892,13 +895,14 @@ def enrich_sheet_linkedin(sheet_url: str):
             creds.refresh(Request())
         else:
             from google_auth_oauthlib.flow import InstalledAppFlow
-            creds_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "credentials.json")
+            creds_file = os.getenv("GOOGLE_CREDENTIALS_FILE", os.getenv("GOOGLE_APPLICATION_CREDENTIALS", str(SECRETS_DIR / "credentials.json")))
             flow = InstalledAppFlow.from_client_secrets_file(creds_file, [
                 "https://www.googleapis.com/auth/spreadsheets",
                 "https://www.googleapis.com/auth/drive"
             ])
             creds = flow.run_local_server(port=0)
-        with open('token.json', 'w') as token:
+        token_file.parent.mkdir(parents=True, exist_ok=True)
+        with token_file.open('w', encoding='utf-8') as token:
             token.write(creds.to_json())
 
     gc = gspread.authorize(creds)

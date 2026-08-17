@@ -10,7 +10,7 @@ import gspread
 from datetime import datetime
 
 # Add execution dir to path
-sys.path.append(os.path.join(os.getcwd(), 'execution'))
+sys.path.append(os.path.dirname(__file__))
 
 from gmaps_lead_pipeline import get_credentials, LEAD_COLUMNS
 from enrich_dirigeants import enrich_lead

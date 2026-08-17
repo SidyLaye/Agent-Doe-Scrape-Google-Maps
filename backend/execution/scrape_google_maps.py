@@ -3,12 +3,13 @@
 Scrape Google Maps business listings using Apify's compass/crawler-google-places actor.
 
 Usage:
-    python3 execution/scrape_google_maps.py --search "plumbers in Austin TX" --limit 10
-    python3 execution/scrape_google_maps.py --search "dentists near me" --location "New York, NY" --limit 25
+    python backend/execution/scrape_google_maps.py --search "plumbers in Austin TX" --limit 10
+    python backend/execution/scrape_google_maps.py --search "dentists near me" --location "New York, NY" --limit 25
 """
 
 import os
 import sys
+from pathlib import Path
 import json
 import argparse
 import urllib.request
@@ -17,7 +18,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from apify_client import ApifyClient
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 ACTOR_ID = "compass/crawler-google-places"
 
@@ -26,6 +27,10 @@ _SPECIAL_LOCATIONS = {
     "île-de-france":  {"coordinates": [2.3522, 48.8566], "radiusKm": 60},
     "ile-de-france":  {"coordinates": [2.3522, 48.8566], "radiusKm": 60},
     "france":         {"coordinates": [1.8883, 46.6034], "radiusKm": 400},
+    # Country-wide coverage for Benin. This must be explicit because the French
+    # government geocoder used below only covers France.
+    "bénin":          {"coordinates": [2.3158, 9.3077], "radiusKm": 350},
+    "benin":          {"coordinates": [2.3158, 9.3077], "radiusKm": 350},
 }
 
 # Default radius for a city (km). Covers the city + close suburbs.
@@ -150,14 +155,31 @@ def scrape_google_maps(
         print("Error: Actor run failed to start", file=sys.stderr)
         return []
 
-    print(f"Scrape finished. Fetching results from dataset {run['defaultDatasetId']}...")
+    # apify-client 3.x returns a typed Run model; older releases returned a dict.
+    dataset_id = getattr(run, "default_dataset_id", None)
+    if not dataset_id and isinstance(run, dict):
+        dataset_id = run.get("defaultDatasetId") or run.get("default_dataset_id")
+    if not dataset_id:
+        print("Error: Apify run did not provide a dataset ID", file=sys.stderr)
+        return []
+
+    print(f"Scrape finished. Fetching results from dataset {dataset_id}...")
 
     results = []
-    for item in client.dataset(run["defaultDatasetId"]).iterate_items():
+    for item in client.dataset(dataset_id).iterate_items():
         results.append(item)
 
     print(f"Retrieved {len(results)} businesses from Google Maps")
     return results
+
+
+def load_apify_dataset(dataset_id: str) -> list[dict]:
+    """Load an existing Apify dataset without starting another paid actor run."""
+    api_token = os.getenv("APIFY_API_TOKEN")
+    if not api_token:
+        return []
+    client = ApifyClient(api_token)
+    return list(client.dataset(dataset_id).iterate_items())
 
 
 def save_results(results: list[dict], prefix: str = "gmaps") -> str:

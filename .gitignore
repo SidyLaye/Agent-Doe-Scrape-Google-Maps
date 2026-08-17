@@ -1,12 +1,13 @@
-.env
-venv
-whatsapp_qr.png
-*.pyc
-.DS_Store
-credentials.json
-token.json
 # Environment Variables
 .env
+.env.*
+!.env.example
+!.env.*.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+!backend/.env.*.example
+backend/secrets/
 
 # Python
 __pycache__/
@@ -56,7 +57,11 @@ verify_*.py
 .history/
 .gemini/
 
-# Credentials in execution/ (copies from root)
-execution/.env
-execution/credentials.json
-execution/token.json
+# Local databases and service state
+backend/*.db
+backend/test_*.db
+backend/postgres_data/
+
+# Frontend build output and dependencies
+frontend/node_modules/
+frontend/dist/

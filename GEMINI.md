@@ -16,12 +16,12 @@ You operate within a 3-layer architecture that separates concerns to maximize re
 **Layer 2: Orchestration (Decision making)**
 - This is you. Your job: intelligent routing.
 - Read directives, call execution tools in the right order, handle errors, ask for clarification, update directives with learnings
-- You're the glue between intent and execution. E.g you don't try scraping websites yourself—you read `directives/scrape_google_maps.md` and run `execution/gmaps_lead_pipeline.py`
+- You're the glue between intent and execution. E.g you don't try scraping websites yourself—you read `directives/scrape_google_maps.md` and run `backend/execution/gmaps_lead_pipeline.py`
 
 **Layer 3: Execution (Doing the work)**
-- Deterministic Python scripts in `execution/`
-- **Run scripts from the `execution/` directory**: `cd execution && python gmaps_lead_pipeline.py --search "..." --location "..." --limit N`
-- Environment variables, api tokens, etc are stored in `.env`
+- Deterministic Python scripts in `backend/execution/`
+- **Run scripts from the `backend/execution/` directory**: `cd backend/execution && python gmaps_lead_pipeline.py --search "..." --location "..." --limit N`
+- Environment variables and API tokens are stored only in `backend/.env`; OAuth files are stored in `backend/secrets/`.
 - Reliable, testable, fast. Use scripts instead of manual work.
 
 **Why this works:** if you do everything yourself, errors compound. 90% accuracy per step = 59% success over 5 steps. The solution is push complexity into deterministic code. That way you just focus on decision-making.
@@ -36,36 +36,32 @@ You operate within a 3-layer architecture that separates concerns to maximize re
 
 ```bash
 # Check if .env exists and has a REAL Apify key (not placeholder)
-cat .env 2>/dev/null | grep APIFY_API_TOKEN
+cat backend/.env 2>/dev/null | grep APIFY_API_TOKEN
 # Check if credentials.json exists
-ls credentials.json 2>/dev/null
+ls backend/secrets/credentials.json 2>/dev/null
 ```
 
 Read the output of the grep. The APIFY_API_TOKEN value must:
 - Start with `apify_api_` (that's the real format)
 - NOT be `your_apify_token_here` or any placeholder
 
-- **If `.env` is missing, or `APIFY_API_TOKEN` is empty, a placeholder, or doesn't start with `apify_api_`**: STOP. Tell the user:
-  *"Il te faut une clé API Apify. Crée un compte sur https://apify.com, va dans Settings > Integrations, copie ton API Token, puis colle-le dans le fichier `.env` (copie `.env.example` en `.env` et remplis `APIFY_API_TOKEN=ta_cle`)."*
+- **If `backend/.env` is missing, or `APIFY_API_TOKEN` is empty, a placeholder, or doesn't start with `apify_api_`**: STOP. Tell the user:
+  *"Il te faut une clé API Apify. Crée un compte sur https://apify.com, va dans Settings > Integrations, copie ton API Token, puis colle-le dans le fichier `backend/.env` (copie `backend/.env.example` en `backend/.env` et remplis `APIFY_API_TOKEN=ta_cle`)."*
 
-- **If `credentials.json` is missing**: STOP. Tell the user:
-  *"Il te faut un fichier `credentials.json` pour Google Sheets. Suis le tutoriel en images dans le dossier `tuto credentials/` (15 étapes). En résumé : va sur console.cloud.google.com, crée un projet, active Google Sheets API + Google Drive API, crée un OAuth client ID de type Desktop App, télécharge le JSON et renomme-le `credentials.json` à la racine du projet."*
+- **If `backend/secrets/credentials.json` is missing**: STOP. Tell the user:
+  *"Il te faut un fichier `credentials.json` pour Google Sheets. Suis le tutoriel en images dans le dossier `tuto credentials/` (15 étapes), puis place le JSON dans `backend/secrets/credentials.json`."*
 
 **Do NOT proceed to Step 2 until both files are confirmed present and valid.**
 
 ### Step 2: Install dependencies (automatic, no user action needed)
 
 ```bash
-pip install -r requirements.txt && python -m playwright install chromium
+pip install -r backend/requirements.txt && python -m playwright install chromium
 ```
 
-### Step 3: Copy credentials to execution/ (automatic)
+### Step 3: Credentials layout
 
-```bash
-cp .env execution/.env 2>/dev/null
-cp credentials.json execution/credentials.json 2>/dev/null
-cp token.json execution/token.json 2>/dev/null
-```
+Do not copy secrets. The backend and execution scripts load `backend/.env` and `backend/secrets/` directly.
 
 ### Step 4: Proceed with the user's request
 
@@ -76,7 +72,7 @@ cp token.json execution/token.json 2>/dev/null
 When the user asks you to scrape businesses, this is all you need:
 
 ```bash
-cd execution
+cd backend/execution
 python gmaps_lead_pipeline.py --search "garage automobile" --location "Île-de-France" --limit 50
 ```
 
@@ -110,8 +106,8 @@ python gmaps_lead_pipeline.py --search "garage automobile" --location "Île-de-F
 
 ### Environment
 - Python 3.11+ required
-- All scripts run from `execution/` directory (they do `cd execution` internally for imports)
-- `credentials.json`, `token.json`, and `.env` must be **in the `execution/` directory** (copy from root if needed)
+- All scripts run from `backend/execution/`.
+- Secrets remain in `backend/.env` and `backend/secrets/`; never duplicate them in the execution directory.
 - On Windows, use `python` directly (not `uv`)
 
 ### Geolocation
@@ -131,14 +127,14 @@ python gmaps_lead_pipeline.py --search "garage automobile" --location "Île-de-F
 ### First Run
 - On first run, a browser window opens for Google OAuth consent
 - User must click "Allow" to authorize Google Sheets + Drive access
-- After that, `token.json` is created and reused automatically
+- After that, `backend/secrets/token.json` is created and reused automatically
 
 ---
 
 ## Operating Principles
 
 **1. Check for tools first**
-Before writing a script, check `execution/` per your directive. Only create new scripts if none exist.
+Before writing a script, check `backend/execution/` per your directive. Only create new scripts if none exist.
 
 **2. Self-anneal when things break**
 - Read error message and stack trace
@@ -160,12 +156,12 @@ Errors are learning opportunities. When something breaks:
 ## File Organization
 
 **Directory structure:**
-- `execution/` - Python scripts (the deterministic tools)
+- `backend/execution/` - Python scripts (the deterministic tools)
 - `directives/` - SOPs in Markdown (the instruction set)
 - `.tmp/` - All intermediate files (never committed, always regenerated)
-- `.env` - Environment variables and API keys
-- `credentials.json`, `token.json` - Google OAuth credentials (in `.gitignore`)
-- `requirements.txt` - Python dependencies
+- `backend/.env` - Environment variables and API keys
+- `backend/secrets/credentials.json`, `backend/secrets/token.json` - Google OAuth credentials (in `.gitignore`)
+- `backend/requirements.txt` - Backend and execution dependencies
 - `tuto credentials/` - Screenshot guide for Google Cloud setup
 
 **Key principle:** Local files are only for processing. Deliverables live in Google Sheets where the user can access them.
@@ -175,3 +171,4 @@ Errors are learning opportunities. When something breaks:
 You sit between human intent (directives) and deterministic execution (Python scripts). Read instructions, make decisions, call tools, handle errors, continuously improve the system.
 
 Be pragmatic. Be reliable. Self-anneal.
+

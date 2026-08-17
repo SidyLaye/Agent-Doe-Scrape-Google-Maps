@@ -15,8 +15,10 @@ Usage:
 import os
 import sys
 import json
+import csv
 import argparse
 import hashlib
+from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -25,18 +27,21 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 
 # Import our modules
-from scrape_google_maps import scrape_google_maps
+from scrape_google_maps import load_apify_dataset, scrape_google_maps
 from enrich_dirigeants import enrich_lead
 from enrich_linkedin import _clean_first_name, _clean_last_name
 from enrich_linkedin_apify import build_linkedin_query, search_linkedin_batch
+from outreach import add_outreach_fields, load_templates
+from enrich_decision_makers import enrich_decision_makers
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 # Google Sheets config
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
+SECRETS_DIR = Path(__file__).resolve().parents[1] / "secrets"
 
 # Default sheet name for leads
 DEFAULT_SHEET_NAME = "GMaps Lead Database"
@@ -54,6 +59,7 @@ LEAD_COLUMNS = [
     "zip_code",
     "country",
     "phone",
+    "email",
     "website",
     "google_maps_url",
     "place_id",
@@ -69,6 +75,20 @@ LEAD_COLUMNS = [
     "dirigeant_type",
     # Enrichment: LinkedIn profile
     "dirigeant_linkedin",
+    # Country-independent public decision-maker enrichment
+    "decision_maker_name",
+    "decision_maker_role",
+    "decision_maker_linkedin",
+    "decision_maker_source",
+    "decision_maker_confidence",
+    # Outreach: channel, appointment link and ready-to-use messages
+    "preferred_channel",
+    "booking_url",
+    "email_message",
+    "sms_message",
+    "whatsapp_message",
+    "whatsapp_url",
+    "outreach_status",
 ]
 
 
@@ -130,8 +150,9 @@ def flatten_lead(gmaps_data: dict, search_query: str) -> dict:
         "city": addr_parts["city"] or gmaps_data.get("city", ""),
         "state": addr_parts["state"] or gmaps_data.get("state", ""),
         "zip_code": addr_parts["zip_code"] or gmaps_data.get("postalCode", ""),
-        "country": gmaps_data.get("countryCode", "USA"),
+        "country": gmaps_data.get("countryCode") or gmaps_data.get("country") or "",
         "phone": gmaps_data.get("phone", ""),
+        "email": gmaps_data.get("email", ""),
         "website": gmaps_data.get("website", ""),
         "google_maps_url": gmaps_data.get("url", ""),
         "place_id": gmaps_data.get("placeId", ""),
@@ -144,30 +165,61 @@ def flatten_lead(gmaps_data: dict, search_query: str) -> dict:
 def get_credentials():
     """Get OAuth2 credentials for Google Sheets API."""
     creds = None
-    if os.path.exists('token.json'):
+    token_file = Path(os.getenv("GOOGLE_TOKEN_FILE", SECRETS_DIR / "token.json"))
+    if token_file.exists():
         try:
-            with open('token.json', 'r') as token:
+            with token_file.open('r', encoding='utf-8') as token:
                 token_data = json.load(token)
                 creds = Credentials.from_authorized_user_info(token_data, SCOPES)
         except Exception as e:
             print(f"Error loading token: {e}")
+
+    # Some exports contain authorized-user token fields but are delivered under
+    # the name credentials.json. Accept that format instead of trying to parse
+    # it as an OAuth client configuration.
+    creds_file = os.getenv("GOOGLE_CREDENTIALS_FILE", os.getenv("GOOGLE_APPLICATION_CREDENTIALS", str(SECRETS_DIR / "credentials.json")))
+    if not creds and os.path.exists(creds_file):
+        try:
+            with open(creds_file, "r", encoding="utf-8-sig") as source:
+                credential_data = json.load(source)
+            if "refresh_token" in credential_data and "client_id" in credential_data:
+                creds = Credentials.from_authorized_user_info(credential_data, SCOPES)
+        except (ValueError, TypeError, json.JSONDecodeError):
+            pass
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
             from google_auth_oauthlib.flow import InstalledAppFlow
-            creds_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "credentials.json")
             if not os.path.exists(creds_file):
                 print(f"Error: Credentials file '{creds_file}' not found.")
                 sys.exit(1)
             flow = InstalledAppFlow.from_client_secrets_file(creds_file, SCOPES)
             creds = flow.run_local_server(port=0)
 
-        with open('token.json', 'w') as token:
+        token_file.parent.mkdir(parents=True, exist_ok=True)
+        with token_file.open('w', encoding='utf-8') as token:
             token.write(creds.to_json())
 
     return creds
+
+
+def ensure_sheet_schema(worksheet) -> None:
+    """Append new columns to an existing sheet without moving existing data."""
+    headers = worksheet.row_values(1)
+    if not headers:
+        worksheet.update(values=[LEAD_COLUMNS], range_name="A1")
+        return
+    missing = [column for column in LEAD_COLUMNS if column not in headers]
+    if missing:
+        start = len(headers) + 1
+        end = start + len(missing) - 1
+        worksheet.update(
+            values=[missing],
+            range_name=f"{gspread.utils.rowcol_to_a1(1, start)}:{gspread.utils.rowcol_to_a1(1, end)}",
+        )
+        print(f"Added {len(missing)} outreach columns to the existing sheet")
 
 
 def get_or_create_sheet(sheet_url: str = None, sheet_name: str = None) -> tuple:
@@ -188,13 +240,16 @@ def get_or_create_sheet(sheet_url: str = None, sheet_name: str = None) -> tuple:
         spreadsheet = client.create(name)
         worksheet = spreadsheet.sheet1
         worksheet.update(values=[LEAD_COLUMNS], range_name='A1')
-        worksheet.format('A1:X1', {
+        last_header = gspread.utils.rowcol_to_a1(1, len(LEAD_COLUMNS))
+        worksheet.format(f'A1:{last_header}', {
             "textFormat": {"bold": True},
             "backgroundColor": {"red": 0.9, "green": 0.9, "blue": 0.9}
         })
         worksheet.freeze(rows=1)
         is_new = True
         print(f"Created new sheet: {name}")
+
+    ensure_sheet_schema(worksheet)
 
     return spreadsheet, worksheet, is_new
 
@@ -208,12 +263,32 @@ def get_existing_lead_ids(worksheet) -> set:
         return set()
 
 
+def export_leads_csv(leads: list[dict], output_path: str) -> str:
+    """Export leads locally as an Excel-friendly UTF-8 CSV."""
+    output_path = os.path.abspath(output_path)
+    parent = os.path.dirname(output_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(output_path, "w", newline="", encoding="utf-8-sig") as handle:
+        writer = csv.DictWriter(handle, fieldnames=LEAD_COLUMNS, extrasaction="ignore")
+        writer.writeheader()
+        for lead in leads:
+            writer.writerow({column: lead.get(column, "") for column in LEAD_COLUMNS})
+    return output_path
+
+
 def run_pipeline(
     search_query: str,
     max_results: int = 10,
     location: str = None,
     sheet_url: str = None,
     sheet_name: str = None,
+    booking_url: str = "",
+    channel: str = "auto",
+    template_file: str = None,
+    csv_output: str = None,
+    enrich_decisionmakers: bool = False,
+    apify_dataset_id: str = None,
 ) -> dict:
     """Run the simplified pipeline."""
     results = {
@@ -224,14 +299,19 @@ def run_pipeline(
         "sheet_url": None,
         "errors": []
     }
+    templates = load_templates(template_file)
 
     # Step 1: Scrape Google Maps
     print(f"\nSTEP 1: Scraping Google Maps for '{search_query}'")
-    businesses = scrape_google_maps(
-        search_query=search_query,
-        max_results=max_results,
-        location=location,
-    )
+    if apify_dataset_id:
+        print(f"Reusing Apify dataset {apify_dataset_id}")
+        businesses = load_apify_dataset(apify_dataset_id)[:max_results]
+    else:
+        businesses = scrape_google_maps(
+            search_query=search_query,
+            max_results=max_results,
+            location=location,
+        )
 
     if not businesses:
         results["errors"].append("No businesses found")
@@ -254,9 +334,10 @@ def run_pipeline(
         zip_code = lead.get("zip_code", "") or None
         if not name:
             continue
-        country = lead.get("country", "").upper()
+        country = (lead.get("country") or "").upper()
         # Only enrich French businesses (also enrich if zip starts with French codes)
-        is_french = country in ("FR", "FRA", "FRANCE", "")
+        location_is_french = bool(location and "france" in location.lower())
+        is_french = country in ("FR", "FRA", "FRANCE") or location_is_french
         if not is_french and zip_code and zip_code[:2].isdigit():
             # French zip codes are 5 digits, departments 01-95 + DOM
             dept = int(zip_code[:2])
@@ -320,17 +401,45 @@ def run_pipeline(
     results["leads_linkedin"] = linkedin_count
     print(f"Found {linkedin_count}/{len(lead_query_map)} LinkedIn profiles")
 
-    # Step 4: Save to Google Sheet
-    print(f"\nSTEP 4: Saving to Google Sheet")
+    if enrich_decisionmakers:
+        print(f"\nSTEP 3B: Searching public decision-makers")
+        try:
+            decisionmaker_count = enrich_decision_makers(leads)
+        except Exception as exc:
+            decisionmaker_count = 0
+            results["errors"].append(f"Decision-maker enrichment error: {exc}")
+        results["decision_makers_found"] = decisionmaker_count
+        print(f"Found {decisionmaker_count}/{len(leads)} decision-maker profiles")
+
+    # Step 4: Prepare outreach messages. Sending remains manual in this MVP.
+    print(f"\nSTEP 4: Preparing outreach messages ({channel})")
+    for lead in leads:
+        lead.update(add_outreach_fields(lead, booking_url, channel, templates))
+
+    # Step 5: Export locally or save to Google Sheets. CSV mode deliberately
+    # avoids Google authentication and performs no remote write.
+    if csv_output:
+        print(f"\nSTEP 5: Exporting to CSV")
+        output_path = export_leads_csv(leads, csv_output)
+        results["csv_output"] = output_path
+        results["leads_added"] = len(leads)
+        results["completed_at"] = datetime.now().isoformat()
+        print(f"Exported {len(leads)} leads to {output_path}")
+        return results
+
+    print(f"\nSTEP 5: Saving to Google Sheet")
     try:
         spreadsheet, worksheet, is_new = get_or_create_sheet(sheet_url, sheet_name)
         results["sheet_url"] = spreadsheet.url
         existing_ids = get_existing_lead_ids(worksheet)
+        sheet_columns = worksheet.row_values(1)
 
         rows = []
         for lead in leads:
             if lead["lead_id"] not in existing_ids:
-                row = [lead.get(col, "") for col in LEAD_COLUMNS]
+                # Existing sheets may have received new columns at the end. Use
+                # their actual header order so values always stay aligned.
+                row = [lead.get(col, "") for col in sheet_columns]
                 rows.append(row)
                 existing_ids.add(lead["lead_id"])
 
@@ -356,6 +465,24 @@ def main():
     parser.add_argument("--location", help="Location context")
     parser.add_argument("--sheet-url", help="Existing sheet URL")
     parser.add_argument("--sheet-name", help="New sheet name")
+    parser.add_argument("--booking-url", default="", help="Calendly or Cal.com booking URL")
+    parser.add_argument(
+        "--channel", choices=("auto", "email", "sms", "whatsapp"), default="auto",
+        help="Preferred outreach channel (default: auto)",
+    )
+    parser.add_argument("--template-file", help="Optional JSON file overriding message templates")
+    parser.add_argument(
+        "--csv-output",
+        help="Export to a local CSV file instead of writing to Google Sheets",
+    )
+    parser.add_argument(
+        "--enrich-decision-makers", action="store_true",
+        help="Search public LinkedIn results for company decision-makers",
+    )
+    parser.add_argument(
+        "--apify-dataset-id",
+        help="Reuse an existing Google Maps Apify dataset instead of scraping again",
+    )
 
     args = parser.parse_args()
     results = run_pipeline(
@@ -364,6 +491,12 @@ def main():
         location=args.location,
         sheet_url=args.sheet_url,
         sheet_name=args.sheet_name,
+        booking_url=args.booking_url,
+        channel=args.channel,
+        template_file=args.template_file,
+        csv_output=args.csv_output,
+        enrich_decisionmakers=args.enrich_decision_makers,
+        apify_dataset_id=args.apify_dataset_id,
     )
 
     if results["errors"]:

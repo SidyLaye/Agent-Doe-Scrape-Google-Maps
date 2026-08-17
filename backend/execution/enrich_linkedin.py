@@ -6,12 +6,13 @@ Flow per lead:
   Person Lookup: first_name + last_name + company_domain -> LinkedIn URL (~2 credits)
 
 Usage:
-    python execution/enrich_linkedin.py --first "Jean" --last "Dupont" --domain "example.fr"
+    python backend/execution/enrich_linkedin.py --first "Jean" --last "Dupont" --domain "example.fr"
 
 Requires ENRICHLAYER_API_KEY in .env
 """
 
 import os
+from pathlib import Path
 import re
 import sys
 import json
@@ -21,7 +22,7 @@ import urllib.parse
 import urllib.error
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 API_BASE = "https://enrichlayer.com/api/v2"
 REQUEST_DELAY = 0.5  # seconds between requests (rate limit: 300/min)

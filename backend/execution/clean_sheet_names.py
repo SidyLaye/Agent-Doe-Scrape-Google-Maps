@@ -8,7 +8,7 @@ Fixes:
   - Birth name in parens: "CHERFILS (BILLOIR)" -> "Cherfils"
 
 Usage:
-    python execution/clean_sheet_names.py
+    python backend/execution/clean_sheet_names.py
 """
 
 import os
