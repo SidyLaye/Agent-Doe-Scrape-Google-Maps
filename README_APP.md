@@ -81,3 +81,28 @@ npm run build
 npm run lint
 ```
 
+## Déploiement Dokploy
+
+Le dépôt contient un `Dockerfile` multi-stage : Vite construit le frontend, puis
+FastAPI sert l'interface et l'API sur le port `8000`. Le `docker-compose.yml`
+démarre ce service avec PostgreSQL 17, sans publier la base sur Internet.
+
+Dans Dokploy :
+
+1. créez un service **Docker Compose** depuis le dépôt et utilisez
+   `./docker-compose.yml` comme Compose Path ;
+2. copiez les variables de `.env.dokploy.example` dans l'onglet Environment et
+   remplacez toutes les valeurs factices par des secrets forts. Dans
+   `DATABASE_URL`, encodez les caractères spéciaux du mot de passe au format URL ;
+3. dans Domains, ajoutez `war.ambs-agency.com`, sélectionnez le service `app`,
+   le port `8000`, HTTPS et le chemin `/` ;
+4. faites pointer l'enregistrement DNS `A` de `war.ambs-agency.com` vers l'IP du
+   serveur Dokploy, puis redéployez après l'ajout du domaine ;
+5. si Google Sheets est requis, ajoutez deux File Mounts Dokploy : votre
+   `credentials.json` vers `/app/backend/secrets/credentials.json`, et le
+   `token.json` déjà autorisé localement vers `/app/backend/secrets/token.json`.
+   Le jeton doit être inscriptible pour permettre son rafraîchissement.
+
+Conservez `DRY_RUN=true` au premier déploiement. Le service attendu par le domaine
+est uniquement `app`; ne créez aucun domaine pour `postgres`.
+

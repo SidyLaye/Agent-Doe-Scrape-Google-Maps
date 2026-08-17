@@ -1,22 +1,55 @@
 services:
   postgres:
     image: postgres:17-alpine
-    container_name: ambs-postgres
     restart: unless-stopped
-    env_file:
-      - ./backend/.env.postgres
     environment:
-      POSTGRES_DB: ambs
-      POSTGRES_USER: ambs
-    ports:
-      - "127.0.0.1:5434:5432"
+      POSTGRES_DB: ${POSTGRES_DB:-ambs}
+      POSTGRES_USER: ${POSTGRES_USER:-ambs}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be configured in Dokploy}
     volumes:
-      - ambs_postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ambs -d ambs"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-ambs} -d $${POSTGRES_DB:-ambs}"]
+      interval: 10s
       timeout: 5s
-      retries: 12
+      retries: 10
+      start_period: 20s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_NAME: ${APP_NAME:-AMBS Outreach}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be configured in Dokploy}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be configured in Dokploy}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES:-480}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:?INITIAL_ADMIN_EMAIL must be configured in Dokploy}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:?INITIAL_ADMIN_PASSWORD must be configured in Dokploy}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://war.ambs-agency.com}
+      DRY_RUN: ${DRY_RUN:-true}
+      APIFY_API_TOKEN: ${APIFY_API_TOKEN:?APIFY_API_TOKEN must be configured in Dokploy}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
+      EMELIA_API_KEY: ${EMELIA_API_KEY:-}
+      EMELIA_API_URL: ${EMELIA_API_URL:-https://graphql.emelia.io/graphql}
+      EMELIA_SENDER_EMAIL: ${EMELIA_SENDER_EMAIL:-ambs.suivi@ambs-ia.com}
+      ISENDPRO_KEY_ID: ${ISENDPRO_KEY_ID:-}
+      ISENDPRO_API_URL: ${ISENDPRO_API_URL:-https://apirest.isendpro.com/cgi-bin}
+      AMBS_API_KEY: ${AMBS_API_KEY:-}
+      AMBS_API_URL: ${AMBS_API_URL:-}
+      AMBS_SENDER_ID: ${AMBS_SENDER_ID:-}
+    expose:
+      - "8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - google_oauth:/app/backend/secrets
 
 volumes:
-  ambs_postgres_data:
+  postgres_data:
+  google_oauth:
